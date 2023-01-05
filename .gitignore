@@ -14,3 +14,5 @@ Cargo.lock
 
 packages/*/schema
 contracts/*/schema
+
+artifacts

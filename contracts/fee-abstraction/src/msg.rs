@@ -24,7 +24,18 @@ pub enum ExecuteMsg {
         callback: String,
         pool_id: u64,
         token_in_denom: String,
-        token_out_denom: String, 
+        token_out_denom: String,
+        with_swap_fee: bool,
+    },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryMsg {
+    QueryStargateTwap {
+        pool_id: u64,
+        token_in_denom: String,
+        token_out_denom: String,
         with_swap_fee: bool,
     },
 }
