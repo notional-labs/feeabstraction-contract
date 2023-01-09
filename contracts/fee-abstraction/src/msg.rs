@@ -1,3 +1,5 @@
+use prost::bytes::Bytes;
+
 use cosmwasm_std::{Empty, QueryRequest};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -38,4 +40,21 @@ pub enum QueryMsg {
         token_out_denom: String,
         with_swap_fee: bool,
     },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct IbcQueryRequestTwap {
+    pool_id: u64,
+    base_asset_denom: String,
+    quote_asset_denom: String,
+}
+
+impl From<&[u8]> for IbcQueryRequestTwap {
+    fn from(item: &[u8]) -> Self {
+        let (head, body, _tail) = unsafe { item.align_to::<IbcQueryRequestTwap>() };
+        assert!(head.is_empty(), "Data was not aligned");
+        let my_struct = &body[0];
+        return my_struct.clone()
+    }
 }
