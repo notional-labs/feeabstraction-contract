@@ -1,5 +1,3 @@
-use prost::bytes::Bytes;
-
 use cosmwasm_std::{Empty, QueryRequest};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -45,9 +43,9 @@ pub enum QueryMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct IbcQueryRequestTwap {
-    pool_id: u64,
-    base_asset_denom: String,
-    quote_asset_denom: String,
+    pub pool_id: u64,
+    pub base_asset_denom: String,
+    pub quote_asset_denom: String,
 }
 
 impl From<&[u8]> for IbcQueryRequestTwap {

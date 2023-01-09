@@ -2,14 +2,17 @@ use cosmwasm_std::{
     entry_point, from_slice, to_binary, Binary, Deps, DepsMut, Empty, Env, Event,
     Ibc3ChannelOpenResponse, IbcBasicResponse, IbcChannelCloseMsg, IbcChannelConnectMsg,
     IbcChannelOpenMsg, IbcChannelOpenResponse, IbcPacketAckMsg, IbcPacketReceiveMsg,
-    IbcPacketTimeoutMsg, IbcReceiveResponse, QueryRequest, StdResult, SystemResult, WasmMsg,
+    IbcPacketTimeoutMsg, IbcReceiveResponse, QueryRequest, StdResult, SystemResult, WasmMsg, to_vec, StdError, ContractResult,
 };
 use cw_ibc_query::{
     check_order, check_version, IbcQueryResponse, PacketMsg, ReceiveIbcResponseMsg,
     ReceiverExecuteMsg, StdAck, IBC_APP_VERSION,
 };
+use cw_osmo_proto::osmosis::gamm::v1beta1::QuerySpotPriceRequest;
+use prost::Message;
 
 use crate::error::ContractError;
+use crate::msg::IbcQueryRequestTwap;
 use crate::state::PENDING;
 
 #[entry_point]
@@ -76,10 +79,42 @@ pub fn ibc_packet_receive(
     _env: Env,
     msg: IbcPacketReceiveMsg,
 ) -> Result<IbcReceiveResponse, ContractError> {
-    let msg: PacketMsg = from_slice(&msg.packet.data)?;
-    match msg {
-        PacketMsg::IbcQuery { msgs, .. } => receive_query(deps.as_ref(), msgs),
-    }
+    let ibc_msg: IbcQueryRequestTwap = from_slice(&msg.packet.data)?;
+    let query_request: QuerySpotPriceRequest = QuerySpotPriceRequest {
+        pool_id: ibc_msg.pool_id,
+        token_in_denom: ibc_msg.base_asset_denom,
+        token_out_denom: ibc_msg.quote_asset_denom,
+        with_swap_fee: false,
+    };
+    let vecu8_query_request = query_request.encode_to_vec();
+    let data = Binary::from(vecu8_query_request);
+
+    let query_request: QueryRequest<Empty> = QueryRequest::Stargate {
+        path: "/osmosis.gamm.v2.Query/SpotPrice".to_string(),
+        data: data,
+    };
+
+    let raw = to_vec(&query_request)
+        .map_err(|serialize_err| {
+            StdError::generic_err(format!("Serializing QueryRequest: {}", serialize_err))
+        })
+        .unwrap();
+
+    let res = match deps.querier.raw_query(&raw) {
+        SystemResult::Err(system_err) => Err(StdError::generic_err(format!(
+            "Querier contract error: {}",
+            system_err
+        ))),
+        SystemResult::Ok(ContractResult::Err(contract_err)) => Err(StdError::generic_err(format!(
+            "Querier contract error: {}",
+            contract_err
+        ))),
+        SystemResult::Ok(ContractResult::Ok(value)) => Ok(value),
+    };
+    let ack = res.unwrap();
+    Ok(IbcReceiveResponse::new()
+        .set_ack(ack)
+        .add_attribute("action", "receive_ibc_query"))
 }
 
 // Processes IBC query
