@@ -37,22 +37,18 @@ pub enum QueryMsg {
         token_in_denom: String,
         token_out_denom: String,
         with_swap_fee: bool,
-    },
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct IbcQueryRequestTwap {
-    pub pool_id: u64,
     pub base_asset_denom: String,
+    pub pool_id: String,
     pub quote_asset_denom: String,
 }
 
-impl From<&[u8]> for IbcQueryRequestTwap {
-    fn from(item: &[u8]) -> Self {
-        let (head, body, _tail) = unsafe { item.align_to::<IbcQueryRequestTwap>() };
-        assert!(head.is_empty(), "Data was not aligned");
-        let my_struct = &body[0];
-        return my_struct.clone()
-    }
-}
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct MigrateMsg {}
+
+

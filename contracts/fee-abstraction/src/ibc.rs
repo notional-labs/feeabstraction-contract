@@ -1,8 +1,9 @@
 use cosmwasm_std::{
-    entry_point, from_slice, to_binary, Binary, Deps, DepsMut, Empty, Env, Event,
-    Ibc3ChannelOpenResponse, IbcBasicResponse, IbcChannelCloseMsg, IbcChannelConnectMsg,
+    entry_point, from_slice, to_binary, to_vec, Binary, ContractResult, Deps, DepsMut, Empty, Env,
+    Event, Ibc3ChannelOpenResponse, IbcBasicResponse, IbcChannelCloseMsg, IbcChannelConnectMsg,
     IbcChannelOpenMsg, IbcChannelOpenResponse, IbcPacketAckMsg, IbcPacketReceiveMsg,
-    IbcPacketTimeoutMsg, IbcReceiveResponse, QueryRequest, StdResult, SystemResult, WasmMsg, to_vec, StdError, ContractResult,
+    IbcPacketTimeoutMsg, IbcReceiveResponse, QueryRequest, StdError, StdResult, SystemResult,
+    WasmMsg, from_binary,
 };
 use cw_ibc_query::{
     check_order, check_version, IbcQueryResponse, PacketMsg, ReceiveIbcResponseMsg,
@@ -13,7 +14,7 @@ use prost::Message;
 
 use crate::error::ContractError;
 use crate::msg::IbcQueryRequestTwap;
-use crate::state::PENDING;
+use crate::state::{PENDING};
 
 #[entry_point]
 /// enforces ordering and versioing constraints
@@ -78,10 +79,25 @@ pub fn ibc_packet_receive(
     deps: DepsMut,
     _env: Env,
     msg: IbcPacketReceiveMsg,
-) -> Result<IbcReceiveResponse, ContractError> {
-    let ibc_msg: IbcQueryRequestTwap = from_slice(&msg.packet.data)?;
+) -> StdResult<IbcReceiveResponse> {
+    let ibc_msg: IbcQueryRequestTwap;
+    let decoded_data: StdResult<IbcQueryRequestTwap> = from_binary(&msg.packet.data);
+    match decoded_data {
+        Ok(sth) => ibc_msg = sth,
+        Err(error) => return StdResult::Ok(IbcReceiveResponse::<Empty>::new()
+        .set_ack(error.to_string().as_bytes())
+        .add_attribute("error", "deserialize")),
+        
+    }
+    let pool_id: u64;
+    match ibc_msg.pool_id.as_str().parse::<u64>(){
+        Ok(id) => pool_id = id ,
+        Err(error) => return StdResult::Ok(IbcReceiveResponse::<Empty>::new()
+        .set_ack(error.to_string().as_bytes())
+        .add_attribute("error", "deserialize")),
+    }
     let query_request: QuerySpotPriceRequest = QuerySpotPriceRequest {
-        pool_id: ibc_msg.pool_id,
+        pool_id: pool_id,
         token_in_denom: ibc_msg.base_asset_denom,
         token_out_denom: ibc_msg.quote_asset_denom,
         with_swap_fee: false,
@@ -109,12 +125,11 @@ pub fn ibc_packet_receive(
             "Querier contract error: {}",
             contract_err
         ))),
-        SystemResult::Ok(ContractResult::Ok(value)) => Ok(value),
+        SystemResult::Ok(ContractResult::Ok(value)) => Ok(IbcReceiveResponse::<Empty>::new()
+            .set_ack(value)
+            .add_attribute("action", "receive_ibc_query")),
     };
-    let ack = res.unwrap();
-    Ok(IbcReceiveResponse::new()
-        .set_ack(ack)
-        .add_attribute("action", "receive_ibc_query"))
+    return res
 }
 
 // Processes IBC query

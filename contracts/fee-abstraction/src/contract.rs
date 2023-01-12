@@ -1,14 +1,14 @@
 use cosmwasm_std::{
-    entry_point, to_binary, Binary, Deps, DepsMut, Empty, Env, IbcMsg, MessageInfo, QueryRequest,
-    Response, StdResult, to_vec, StdError, SystemResult, from_binary, ContractResult,
+    entry_point, to_binary, to_vec, Binary, ContractResult, Deps, DepsMut, Empty, Env,
+    IbcMsg, MessageInfo, QueryRequest, Response, StdError, StdResult, SystemResult,
 };
 
 use cw_ibc_query::PacketMsg;
 
 use crate::error::ContractError;
-use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
+use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
 use crate::state::PACKET_LIFETIME;
-use cw_osmo_proto::osmosis::gamm::v1beta1::{QuerySpotPriceRequest, QuerySpotPriceResponse};
+use cw_osmo_proto::osmosis::gamm::v1beta1::{QuerySpotPriceRequest};
 use prost::Message;
 
 #[entry_point]
@@ -192,6 +192,11 @@ pub fn query_stargate_twap(
         SystemResult::Ok(ContractResult::Ok(value)) => Ok(value),
     };
     res
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> StdResult<Response> {
+    Ok(Response::default())
 }
 
 #[cfg(test)]
