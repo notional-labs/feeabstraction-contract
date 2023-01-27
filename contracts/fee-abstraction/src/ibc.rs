@@ -1,9 +1,9 @@
 use cosmwasm_std::{
-    entry_point, from_slice, to_binary, to_vec, Binary, ContractResult, Deps, DepsMut, Empty, Env,
-    Event, Ibc3ChannelOpenResponse, IbcBasicResponse, IbcChannelCloseMsg, IbcChannelConnectMsg,
-    IbcChannelOpenMsg, IbcChannelOpenResponse, IbcPacketAckMsg, IbcPacketReceiveMsg,
-    IbcPacketTimeoutMsg, IbcReceiveResponse, QueryRequest, StdError, StdResult, SystemResult,
-    WasmMsg, from_binary,
+    entry_point, from_binary, from_slice, to_binary, to_vec, Binary, ContractResult, Deps, DepsMut,
+    Empty, Env, Event, Ibc3ChannelOpenResponse, IbcBasicResponse, IbcChannelCloseMsg,
+    IbcChannelConnectMsg, IbcChannelOpenMsg, IbcChannelOpenResponse, IbcPacketAckMsg,
+    IbcPacketReceiveMsg, IbcPacketTimeoutMsg, IbcReceiveResponse, QueryRequest, StdError,
+    StdResult, SystemResult, WasmMsg,
 };
 use cw_ibc_query::{
     check_order, check_version, IbcQueryResponse, PacketMsg, ReceiveIbcResponseMsg,
@@ -13,8 +13,8 @@ use cw_osmo_proto::osmosis::gamm::v1beta1::QuerySpotPriceRequest;
 use prost::Message;
 
 use crate::error::ContractError;
-use crate::msg::IbcQueryRequestTwap;
-use crate::state::{PENDING};
+use crate::msg::{AcknowledgementMsg, IbcQueryRequestTwap, IbcQueryRequestTwapResponse};
+use crate::state::PENDING;
 
 #[entry_point]
 /// enforces ordering and versioing constraints
@@ -80,92 +80,91 @@ pub fn ibc_packet_receive(
     _env: Env,
     msg: IbcPacketReceiveMsg,
 ) -> StdResult<IbcReceiveResponse> {
-    let ibc_msg: IbcQueryRequestTwap;
-    let decoded_data: StdResult<IbcQueryRequestTwap> = from_binary(&msg.packet.data);
-    match decoded_data {
-        Ok(sth) => ibc_msg = sth,
-        Err(error) => return StdResult::Ok(IbcReceiveResponse::<Empty>::new()
-        .set_ack(error.to_string().as_bytes())
-        .add_attribute("error", "deserialize")),
-        
-    }
-    let pool_id: u64;
-    match ibc_msg.pool_id.as_str().parse::<u64>(){
-        Ok(id) => pool_id = id ,
-        Err(error) => return StdResult::Ok(IbcReceiveResponse::<Empty>::new()
-        .set_ack(error.to_string().as_bytes())
-        .add_attribute("error", "deserialize")),
-    }
-    let query_request: QuerySpotPriceRequest = QuerySpotPriceRequest {
-        pool_id: pool_id,
-        token_in_denom: ibc_msg.base_asset_denom,
-        token_out_denom: ibc_msg.quote_asset_denom,
-        with_swap_fee: false,
-    };
-    let vecu8_query_request = query_request.encode_to_vec();
-    let data = Binary::from(vecu8_query_request);
+    // put this in a closure so we can convert all error responses into acknowledgements
+    (|| {
+        let ibc_msg: IbcQueryRequestTwap;
+        let decoded_data: StdResult<IbcQueryRequestTwap> = from_binary(&msg.packet.data);
+        match decoded_data {
+            Ok(ibc_query_req) => ibc_msg = ibc_query_req,
+            Err(error) => {
+                return Err(StdError::generic_err(format!(
+                    "Serilize error: {}",
+                    error
+                )))
+            }
+        }
 
-    let query_request: QueryRequest<Empty> = QueryRequest::Stargate {
-        path: "/osmosis.gamm.v2.Query/SpotPrice".to_string(),
-        data: data,
-    };
+        let pool_id: u64;
+        match ibc_msg.pool_id.as_str().parse::<u64>() {
+            Ok(id) => pool_id = id,
+            Err(error) => {
+                return Err(StdError::generic_err(format!(
+                    "Parse error: {}",
+                    error
+                )))
+            }
+        }
+        let query_request: QuerySpotPriceRequest = QuerySpotPriceRequest {
+            pool_id: pool_id,
+            token_in_denom: ibc_msg.base_asset_denom,
+            token_out_denom: ibc_msg.quote_asset_denom,
+            with_swap_fee: false,
+        };
+        let vecu8_query_request = query_request.encode_to_vec();
+        let data = Binary::from(vecu8_query_request);
 
-    let raw = to_vec(&query_request)
-        .map_err(|serialize_err| {
-            StdError::generic_err(format!("Serializing QueryRequest: {}", serialize_err))
-        })
-        .unwrap();
+        let query_request: QueryRequest<Empty> = QueryRequest::Stargate {
+            path: "/osmosis.gamm.v2.Query/SpotPrice".to_string(),
+            data: data,
+        };
 
-    let res = match deps.querier.raw_query(&raw) {
-        SystemResult::Err(system_err) => Err(StdError::generic_err(format!(
-            "Querier contract error: {}",
-            system_err
-        ))),
-        SystemResult::Ok(ContractResult::Err(contract_err)) => Err(StdError::generic_err(format!(
-            "Querier contract error: {}",
-            contract_err
-        ))),
-        SystemResult::Ok(ContractResult::Ok(value)) => Ok(IbcReceiveResponse::<Empty>::new()
-            .set_ack(value)
-            .add_attribute("action", "receive_ibc_query")),
-    };
-    return res
+        let raw = to_vec(&query_request)
+            .map_err(|serialize_err| {
+                StdError::generic_err(format!("Serializing QueryRequest: {}", serialize_err))
+            })
+            .unwrap();
+
+        let res = match deps.querier.raw_query(&raw) {
+            SystemResult::Err(system_err) => Err(StdError::generic_err(format!(
+                "Querier contract error: {}",
+                system_err
+            ))),
+            SystemResult::Ok(ContractResult::Err(contract_err)) => Err(StdError::generic_err(
+                format!("Querier contract error: {}", contract_err),
+            )),
+            SystemResult::Ok(ContractResult::Ok(value)) => {
+                let response = IbcQueryRequestTwapResponse { value };
+                let acknowledgement = to_binary(&AcknowledgementMsg::Ok(response))?;
+                Ok(IbcReceiveResponse::<Empty>::new()
+                    .set_ack(acknowledgement)
+                    .add_attribute("action", "receive_ibc_query"))
+            }
+        };
+        return res;
+    })()
+    .or_else(|e| {
+        // we try to capture all app-level errors and convert them into
+        // acknowledgement packets that contain an error code.
+        let acknowledgement = encode_ibc_error(format!("invalid packet: {}", e));
+        Ok(IbcReceiveResponse::new()
+            .set_ack(acknowledgement)
+            .add_event(Event::new("ibc").add_attribute("packet", "receive")))
+    })
 }
 
-// Processes IBC query
-pub fn receive_query(
-    deps: Deps,
-    msgs: Vec<QueryRequest<Empty>>,
-) -> Result<IbcReceiveResponse, ContractError> {
-    let mut results: Vec<Binary> = vec![];
-
-    for query in msgs {
-        let res = match deps.querier.raw_query(&to_binary(&query)?) {
-            SystemResult::Ok(res) => res,
-            SystemResult::Err(err) => cosmwasm_std::ContractResult::Err(err.to_string()),
-        };
-        results.push(to_binary(&res)?);
-    }
-    let response = IbcQueryResponse { results };
-
-    let acknowledgement = StdAck::success(&response);
-    Ok(IbcReceiveResponse::new()
-        .set_ack(acknowledgement)
-        .add_attribute("action", "receive_ibc_query"))
+// this encode an error or error message into a proper acknowledgement to the recevier
+fn encode_ibc_error(msg: impl Into<String>) -> Binary {
+    // this cannot error, unwrap to keep the interface simple
+    to_binary(&AcknowledgementMsg::<()>::Err(msg.into())).unwrap()
 }
 
 #[entry_point]
 pub fn ibc_packet_ack(
-    deps: DepsMut,
-    env: Env,
-    msg: IbcPacketAckMsg,
+    _deps: DepsMut,
+    _env: Env,
+    _msg: IbcPacketAckMsg,
 ) -> Result<IbcBasicResponse, ContractError> {
-    // we need to parse the ack based on our request
-    let original_packet: PacketMsg = from_slice(&msg.original_packet.data)?;
-
-    match original_packet {
-        PacketMsg::IbcQuery { callback, .. } => acknowledge_query(deps, env, callback, msg),
-    }
+    Ok(IbcBasicResponse::new().add_attribute("action", "ibc_packet_ack"))
 }
 
 #[entry_point]
@@ -175,69 +174,4 @@ pub fn ibc_packet_timeout(
     _msg: IbcPacketTimeoutMsg,
 ) -> StdResult<IbcBasicResponse> {
     Ok(IbcBasicResponse::new().add_attribute("action", "ibc_packet_timeout"))
-}
-
-fn acknowledge_query(
-    _deps: DepsMut,
-    _env: Env,
-    callback: String,
-    msg: IbcPacketAckMsg,
-) -> Result<IbcBasicResponse, ContractError> {
-    // Send IBC packet ack message to another contract
-    let msg = WasmMsg::Execute {
-        contract_addr: callback.clone(),
-        msg: to_binary(&ReceiverExecuteMsg::ReceiveIbcResponse(
-            ReceiveIbcResponseMsg { msg },
-        ))?,
-        funds: vec![],
-    };
-    Ok(IbcBasicResponse::new()
-        .add_attribute("action", "acknowledge_ibc_query")
-        .add_attribute("callback_address", callback)
-        .add_message(msg))
-}
-
-#[cfg(test)]
-mod tests {
-    use cosmwasm_std::{
-        testing::{mock_dependencies, mock_env, mock_ibc_packet_ack},
-        BankQuery, IbcAcknowledgement,
-    };
-
-    use crate::msg::InstantiateMsg;
-
-    use super::*;
-
-    const CHANNEL: &str = "channel-42";
-
-    #[test]
-    fn try_receive_query() {
-        let deps = mock_dependencies();
-
-        let res = receive_query(
-            deps.as_ref(),
-            vec![QueryRequest::<Empty>::Bank(BankQuery::AllBalances {
-                address: String::from("test"),
-            })],
-        );
-        assert!(res.is_ok());
-    }
-
-    #[test]
-    fn try_acknowledge_query() {
-        let mut deps = mock_dependencies();
-        let env = mock_env();
-
-        let ack = IbcAcknowledgement::new([]);
-        let ibc_res = mock_ibc_packet_ack(
-            CHANNEL,
-            &InstantiateMsg {
-                packet_lifetime: 60u64,
-            },
-            ack,
-        )
-        .unwrap();
-        let res = acknowledge_query(deps.as_mut(), env, String::from("test"), ibc_res);
-        assert!(res.is_ok());
-    }
 }
