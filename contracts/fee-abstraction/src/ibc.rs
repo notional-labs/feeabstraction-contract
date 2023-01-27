@@ -1,13 +1,9 @@
 use cosmwasm_std::{
     entry_point, from_binary, from_slice, to_binary, to_vec, Binary, ContractResult, Deps, DepsMut,
     Empty, Env, Event, Ibc3ChannelOpenResponse, IbcBasicResponse, IbcChannelCloseMsg,
-    IbcChannelConnectMsg, IbcChannelOpenMsg, IbcChannelOpenResponse, IbcPacketAckMsg,
+    IbcChannelConnectMsg, IbcChannelOpenMsg, IbcChannelOpenResponse, IbcOrder, IbcPacketAckMsg,
     IbcPacketReceiveMsg, IbcPacketTimeoutMsg, IbcReceiveResponse, QueryRequest, StdError,
     StdResult, SystemResult, WasmMsg,
-};
-use cw_ibc_query::{
-    check_order, check_version, IbcQueryResponse, PacketMsg, ReceiveIbcResponseMsg,
-    ReceiverExecuteMsg, StdAck, IBC_APP_VERSION,
 };
 use cw_osmo_proto::osmosis::gamm::v1beta1::QuerySpotPriceRequest;
 use prost::Message;
@@ -15,6 +11,7 @@ use prost::Message;
 use crate::error::ContractError;
 use crate::msg::{AcknowledgementMsg, IbcQueryRequestTwap, IbcQueryRequestTwapResponse};
 use crate::state::PENDING;
+use crate::IBC_APP_VERSION;
 
 #[entry_point]
 /// enforces ordering and versioing constraints
@@ -22,14 +19,22 @@ pub fn ibc_channel_open(
     _deps: DepsMut,
     _env: Env,
     msg: IbcChannelOpenMsg,
-) -> Result<IbcChannelOpenResponse, ContractError> {
+) -> StdResult<IbcChannelOpenResponse> {
     let channel = msg.channel();
 
-    check_order(&channel.order)?;
+    if channel.order != IbcOrder::Ordered {
+        return Err(StdError::generic_err("Only supports ordered channels"));
+    }
+
     // In ibcv3 we don't check the version string passed in the message
     // and only check the counterparty version.
     if let Some(counter_version) = msg.counterparty_version() {
-        check_version(counter_version)?;
+        if counter_version != IBC_APP_VERSION {
+            return Err(StdError::generic_err(format!(
+                "Counterparty version must be `{}`",
+                IBC_APP_VERSION
+            )));
+        }
     }
 
     // We return the version we need (which could be different than the counterparty version)
@@ -86,23 +91,13 @@ pub fn ibc_packet_receive(
         let decoded_data: StdResult<IbcQueryRequestTwap> = from_binary(&msg.packet.data);
         match decoded_data {
             Ok(ibc_query_req) => ibc_msg = ibc_query_req,
-            Err(error) => {
-                return Err(StdError::generic_err(format!(
-                    "Serilize error: {}",
-                    error
-                )))
-            }
+            Err(error) => return Err(StdError::generic_err(format!("Serilize error: {}", error))),
         }
 
         let pool_id: u64;
         match ibc_msg.pool_id.as_str().parse::<u64>() {
             Ok(id) => pool_id = id,
-            Err(error) => {
-                return Err(StdError::generic_err(format!(
-                    "Parse error: {}",
-                    error
-                )))
-            }
+            Err(error) => return Err(StdError::generic_err(format!("Serilize error: {}", error))),
         }
         let query_request: QuerySpotPriceRequest = QuerySpotPriceRequest {
             pool_id: pool_id,
