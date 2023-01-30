@@ -9,9 +9,9 @@ use cw_osmo_proto::osmosis::gamm::v1beta1::QuerySpotPriceRequest;
 use prost::Message;
 
 use crate::error::ContractError;
-use crate::msg::{AcknowledgementMsg, IbcQueryRequestTwap, IbcQueryRequestTwapResponse};
+use crate::msg::{IbcQueryRequestTwap, IbcQueryRequestTwapResponse};
 use crate::state::PENDING;
-use crate::IBC_APP_VERSION;
+use crate::{IBC_APP_VERSION, APP_ORDER};
 
 #[entry_point]
 /// enforces ordering and versioing constraints
@@ -22,8 +22,8 @@ pub fn ibc_channel_open(
 ) -> StdResult<IbcChannelOpenResponse> {
     let channel = msg.channel();
 
-    if channel.order != IbcOrder::Ordered {
-        return Err(StdError::generic_err("Only supports ordered channels"));
+    if channel.order != APP_ORDER {
+        return Err(StdError::generic_err("Only supports unordered channels"));
     }
 
     // In ibcv3 we don't check the version string passed in the message
@@ -128,8 +128,8 @@ pub fn ibc_packet_receive(
                 format!("Querier contract error: {}", contract_err),
             )),
             SystemResult::Ok(ContractResult::Ok(value)) => {
-                let response = IbcQueryRequestTwapResponse { value };
-                let acknowledgement = to_binary(&AcknowledgementMsg::Ok(response))?;
+                let response = IbcQueryRequestTwapResponse::Result(value);
+                let acknowledgement = to_binary(&response)?;
                 Ok(IbcReceiveResponse::<Empty>::new()
                     .set_ack(acknowledgement)
                     .add_attribute("action", "receive_ibc_query"))
@@ -150,7 +150,7 @@ pub fn ibc_packet_receive(
 // this encode an error or error message into a proper acknowledgement to the recevier
 fn encode_ibc_error(msg: impl Into<String>) -> Binary {
     // this cannot error, unwrap to keep the interface simple
-    to_binary(&AcknowledgementMsg::<()>::Err(msg.into())).unwrap()
+    to_binary(&IbcQueryRequestTwapResponse::Error(msg.into())).unwrap()
 }
 
 #[entry_point]

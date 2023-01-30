@@ -1,4 +1,4 @@
-use cosmwasm_std::{Empty, QueryRequest, ContractResult, Binary};
+use cosmwasm_std::{Binary, ContractResult, Empty, QueryRequest};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -37,7 +37,7 @@ pub enum QueryMsg {
         token_in_denom: String,
         token_out_denom: String,
         with_swap_fee: bool,
-    }
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -51,13 +51,17 @@ pub struct IbcQueryRequestTwap {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct MigrateMsg {}
 
-
 /// All acknowledgements are wrapped in `ContractResult`.
 /// The success value depends on the PacketMsg variant.
-pub type AcknowledgementMsg<T> = ContractResult<T>;
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct Result {
+    pub value: Binary,
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub struct IbcQueryRequestTwapResponse {
-    pub value: Binary,
+pub enum IbcQueryRequestTwapResponse {
+    Result(Binary),
+    Error(String)
 }
