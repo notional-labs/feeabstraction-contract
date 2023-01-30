@@ -1,14 +1,12 @@
 use cosmwasm_std::{
-    entry_point, to_binary, to_vec, Binary, ContractResult, Deps, DepsMut, Empty, Env,
-    IbcMsg, MessageInfo, QueryRequest, Response, StdError, StdResult, SystemResult,
+    entry_point, to_binary, to_vec, Binary, ContractResult, Deps, DepsMut, Empty, Env, IbcMsg,
+    IbcOrder, MessageInfo, QueryRequest, Response, StdError, StdResult, SystemResult,
 };
-
-use cw_ibc_query::PacketMsg;
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
 use crate::state::PACKET_LIFETIME;
-use cw_osmo_proto::osmosis::gamm::v1beta1::{QuerySpotPriceRequest};
+use cw_osmo_proto::osmosis::gamm::v1beta1::QuerySpotPriceRequest;
 use prost::Message;
 
 #[entry_point]
@@ -31,107 +29,7 @@ pub fn execute(
 ) -> Result<Response, ContractError> {
     // stop any coins sent
     cw_utils::nonpayable(&info)?;
-    match msg {
-        ExecuteMsg::IbcQuery {
-            channel_id,
-            msgs,
-            callback,
-        } => execute_ibc_query(deps, env, info, channel_id, msgs, callback),
-        ExecuteMsg::OsmoTwapIbcQuery {
-            channel_id,
-            callback,
-            pool_id,
-            token_in_denom,
-            token_out_denom,
-            with_swap_fee,
-        } => execute_osmo_twap_ibc_query(
-            deps,
-            env,
-            info,
-            channel_id,
-            pool_id,
-            token_in_denom,
-            token_out_denom,
-            with_swap_fee,
-            callback,
-        ),
-    }
-}
-
-pub fn execute_ibc_query(
-    deps: DepsMut,
-    env: Env,
-    _info: MessageInfo,
-    channel_id: String,
-    msgs: Vec<QueryRequest<Empty>>,
-    callback: String,
-) -> Result<Response, ContractError> {
-    // validate callback address
-    deps.api.addr_validate(&callback)?;
-
-    // construct a packet to send
-    let packet = PacketMsg::IbcQuery { msgs, callback };
-    let msg = IbcMsg::SendPacket {
-        channel_id,
-        data: to_binary(&packet)?,
-        timeout: env
-            .block
-            .time
-            .plus_seconds(PACKET_LIFETIME.load(deps.storage)?)
-            .into(),
-    };
-
-    let res = Response::new()
-        .add_message(msg)
-        .add_attribute("action", "execute_ibc_query");
-    Ok(res)
-}
-
-pub fn execute_osmo_twap_ibc_query(
-    deps: DepsMut,
-    env: Env,
-    _info: MessageInfo,
-    channel_id: String,
-    pool_id: u64,
-    token_in_denom: String,
-    token_out_denom: String,
-    with_swap_fee: bool,
-    callback: String,
-) -> Result<Response, ContractError> {
-    // validate callback address
-    deps.api.addr_validate(&callback)?;
-
-    let query_request: QuerySpotPriceRequest = QuerySpotPriceRequest {
-        pool_id,
-        token_in_denom,
-        token_out_denom,
-        with_swap_fee,
-    };
-    let vecu8_query_request = query_request.encode_to_vec();
-    let data = Binary::from(vecu8_query_request);
-
-    let query_request: QueryRequest<Empty> = QueryRequest::Stargate {
-        path: "/osmosis.gamm.v2.Query/SpotPrice".to_string(),
-        data: data,
-    };
-    let msgs = vec![query_request];
-
-    // construct a packet to send
-    let packet = PacketMsg::IbcQuery { msgs, callback };
-    let msg = IbcMsg::SendPacket {
-        channel_id,
-        data: to_binary(&packet)?,
-        timeout: env
-            .block
-            .time
-            .plus_seconds(PACKET_LIFETIME.load(deps.storage)?)
-            .into(),
-    };
-
-    let res = Response::new()
-        .add_message(msg)
-        .add_attribute("action", "execute_ibc_query");
-    Ok(res)
+    Ok(Response::default())
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -207,9 +105,8 @@ mod tests {
     };
     use cosmwasm_std::OwnedDeps;
 
-    use cw_ibc_query::{APP_ORDER, BAD_APP_ORDER, IBC_APP_VERSION};
-
     use crate::ibc::{ibc_channel_connect, ibc_channel_open};
+    use crate::{APP_ORDER, BAD_APP_ORDER, IBC_APP_VERSION};
 
     use super::*;
 
