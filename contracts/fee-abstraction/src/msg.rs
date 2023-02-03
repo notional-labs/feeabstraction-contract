@@ -11,22 +11,6 @@ pub struct InstantiateMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    IbcQuery {
-        channel_id: String,
-        // Queries to be executed
-        msgs: Vec<QueryRequest<Empty>>,
-        // Callback contract address that implements ReceiveIbcResponseMsg
-        callback: String,
-    },
-    OsmoTwapIbcQuery {
-        channel_id: String,
-        // Callback contract address that implements ReceiveIbcResponseMsg
-        callback: String,
-        pool_id: u64,
-        token_in_denom: String,
-        token_out_denom: String,
-        with_swap_fee: bool,
-    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
