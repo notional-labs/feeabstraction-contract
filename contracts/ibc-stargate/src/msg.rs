@@ -1,4 +1,4 @@
-use cosmwasm_std::{Binary, ContractResult, Empty, QueryRequest};
+use cosmwasm_std::{Binary};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -10,8 +10,7 @@ pub struct InstantiateMsg {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum ExecuteMsg {
-}
+pub enum ExecuteMsg {}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -27,6 +26,12 @@ pub enum QueryMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct IbcStargate {
+    pub requests: Vec<StargateRequest>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct StargateRequest {
     pub path: String,
     pub data: Binary,
 }
@@ -50,9 +55,9 @@ pub struct Result {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum IbcQueryRequestTwapResponse {
+pub enum IbcQueryRequestResponse {
     Result(Binary),
-    Error(String)
+    Error(String),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]

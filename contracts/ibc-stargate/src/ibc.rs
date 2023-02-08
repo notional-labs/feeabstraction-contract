@@ -9,7 +9,7 @@ use cw_osmo_proto::osmosis::gamm::v1beta1::QuerySpotPriceRequest;
 use prost::Message;
 
 use crate::error::{ContractError, QueryError, QueryResult};
-use crate::msg::{CallResult, IbcQueryRequestTwapResponse, IbcStargate};
+use crate::msg::{CallResult, IbcQueryRequestResponse, IbcStargate};
 use crate::state::PENDING;
 use crate::{APP_ORDER, IBC_APP_VERSION};
 
@@ -87,18 +87,18 @@ pub fn ibc_packet_receive(
 ) -> StdResult<IbcReceiveResponse> {
     // put this in a closure so we can convert all error responses into acknowledgements
     (|| {
-        let ibc_msgs: Vec<IbcStargate>;
-        let decoded_data: StdResult<Vec<IbcStargate>> = from_binary(&msg.packet.data);
+        let ibc_msg: IbcStargate;
+        let decoded_data: StdResult<IbcStargate> = from_binary(&msg.packet.data);
         match decoded_data {
-            Ok(ibc_query_req) => ibc_msgs = ibc_query_req,
+            Ok(ibc_query_req) => ibc_msg = ibc_query_req,
             Err(error) => return Err(StdError::generic_err(format!("Serilize error: {}", error))),
         }
 
         let mut query_requests: Vec<QueryRequest<Empty>> = vec![];
-        for ibc_msg in ibc_msgs {
+        for request in ibc_msg.requests {
             query_requests.push(QueryRequest::Stargate {
-                path: ibc_msg.path,
-                data: ibc_msg.data,
+                path: request.path,
+                data: request.data,
             })
         }
 
@@ -125,11 +125,12 @@ pub fn ibc_packet_receive(
             Ok(data) => value = data,
             Err(err) => return Err(StdError::generic_err(format!("To binary error: {}", err))),
         }
-        let response = IbcQueryRequestTwapResponse::Result(value);
+        let response = IbcQueryRequestResponse::Result(value);
         let acknowledgement = to_binary(&response)?;
         Ok(IbcReceiveResponse::<Empty>::new()
             .set_ack(acknowledgement)
             .add_attribute("action", "receive_ibc_query"))
+
     })()
     .or_else(|e| {
         // we try to capture all app-level errors and convert them into
@@ -154,7 +155,7 @@ fn process_query_result(result: QuerierResult) -> QueryResult {
 // this encode an error or error message into a proper acknowledgement to the recevier
 fn encode_ibc_error(msg: impl Into<String>) -> Binary {
     // this cannot error, unwrap to keep the interface simple
-    to_binary(&IbcQueryRequestTwapResponse::Error(msg.into())).unwrap()
+    to_binary(&IbcQueryRequestResponse::Error(msg.into())).unwrap()
 }
 
 #[entry_point]
