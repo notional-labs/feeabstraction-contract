@@ -9,7 +9,7 @@ use cw_osmo_proto::osmosis::gamm::v1beta1::QuerySpotPriceRequest;
 use prost::Message;
 
 use crate::error::{ContractError, QueryError, QueryResult};
-use crate::msg::{CallResult, IbcQueryRequestResponse, IbcStargate};
+use crate::msg::{CallResult, ICQResponse, IbcQueryRequestResponse, IbcStargate};
 use crate::state::PENDING;
 use crate::{APP_ORDER, IBC_APP_VERSION};
 
@@ -106,31 +106,36 @@ pub fn ibc_packet_receive(
 
         for i in 0..query_requests.len() {
             let query_request = query_requests[i].clone();
-            let raw = to_vec(&query_request)
-                .map_err(|serialize_err| {
-                    StdError::generic_err(format!("Serializing QueryRequest: {}", serialize_err))
-                })
-                .unwrap();
-            let res = deps.querier.raw_query(&raw);
-            result[i] = match process_query_result(res) {
-                Ok(res) => CallResult {
-                    success: true,
-                    data: res,
-                },
-                Err(err) => return Err(err.std_at_index(i)),
+            let tovec_raw = to_vec(&query_request).map_err(|serialize_err| {
+                StdError::generic_err(format!("Serializing QueryRequest: {}", serialize_err))
+            });
+            let raw: Vec<u8>;
+            match tovec_raw {
+                Ok(vecu8) => {
+                    raw = vecu8;
+                    let res = deps.querier.raw_query(&raw);
+                    result[i] = match process_query_result(res) {
+                        Ok(res) => CallResult {
+                            success: true,
+                            data: res,
+                        },
+                        Err(err) => return Err(err.std_at_index(i)),
+                    }
+                }
+                Err(err) => {
+                    result[i] = CallResult {
+                        success: false,
+                        data: to_binary(&err.to_string())?,
+                    }
+                }
             }
         }
-        let value: Binary;
-        match to_binary(&result) {
-            Ok(data) => value = data,
-            Err(err) => return Err(StdError::generic_err(format!("To binary error: {}", err))),
-        }
-        let response = IbcQueryRequestResponse::Result(value);
+        let icq_responses: ICQResponse = ICQResponse { responses: result };
+        let response = IbcQueryRequestResponse::Result(to_binary(&icq_responses)?);
         let acknowledgement = to_binary(&response)?;
         Ok(IbcReceiveResponse::<Empty>::new()
             .set_ack(acknowledgement)
             .add_attribute("action", "receive_ibc_query"))
-
     })()
     .or_else(|e| {
         // we try to capture all app-level errors and convert them into

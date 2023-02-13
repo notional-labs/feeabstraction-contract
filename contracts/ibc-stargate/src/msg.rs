@@ -1,4 +1,4 @@
-use cosmwasm_std::{Binary};
+use cosmwasm_std::Binary;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -36,7 +36,7 @@ pub struct StargateRequest {
     pub data: Binary,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema, Default)]
 pub struct CallResult {
     pub success: bool,
     pub data: Binary,
@@ -51,6 +51,12 @@ pub struct MigrateMsg {}
 #[serde(rename_all = "snake_case")]
 pub struct Result {
     pub value: Binary,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct ICQResponse {
+    pub responses: Vec<CallResult>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
