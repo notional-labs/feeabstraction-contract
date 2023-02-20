@@ -1,15 +1,17 @@
+use std::time::SystemTime;
+
 use cosmwasm_std::{
     entry_point, from_binary, from_slice, to_binary, to_vec, Binary, ContractResult, Deps, DepsMut,
     Empty, Env, Event, Ibc3ChannelOpenResponse, IbcBasicResponse, IbcChannelCloseMsg,
     IbcChannelConnectMsg, IbcChannelOpenMsg, IbcChannelOpenResponse, IbcOrder, IbcPacketAckMsg,
     IbcPacketReceiveMsg, IbcPacketTimeoutMsg, IbcReceiveResponse, QueryRequest, StdError,
-    StdResult, SystemResult, WasmMsg,
+    StdResult, SystemResult, WasmMsg, Timestamp,
 };
 use cw_osmo_proto::osmosis::gamm::v1beta1::QuerySpotPriceRequest;
 use prost::Message;
 
 use crate::error::ContractError;
-use crate::msg::{IbcQueryRequestTwap, IbcQueryRequestTwapResponse};
+use crate::msg::{IbcQueryRequestTwap, IbcQueryRequestTwapResponse, QueryTwapRequest};
 use crate::state::PENDING;
 use crate::{IBC_APP_VERSION, APP_ORDER};
 
@@ -91,7 +93,7 @@ pub fn ibc_packet_receive(
         let decoded_data: StdResult<IbcQueryRequestTwap> = from_binary(&msg.packet.data);
         match decoded_data {
             Ok(ibc_query_req) => ibc_msg = ibc_query_req,
-            Err(error) => return Err(StdError::generic_err(format!("Serilize error: {}", error))),
+            Err(error) => return Err(StdError::generic_err(format!("Serilize query reqerror: {}", error))),
         }
 
         let pool_id: u64;
@@ -99,11 +101,11 @@ pub fn ibc_packet_receive(
             Ok(id) => pool_id = id,
             Err(error) => return Err(StdError::generic_err(format!("Serilize error: {}", error))),
         }
-        let query_request: QuerySpotPriceRequest = QuerySpotPriceRequest {
+        let query_request: QueryTwapRequest = QueryTwapRequest {
             pool_id: pool_id,
-            token_in_denom: ibc_msg.base_asset_denom,
-            token_out_denom: ibc_msg.quote_asset_denom,
-            with_swap_fee: false,
+            base_asset: ibc_msg.base_denom,
+            quote_asset: ibc_msg.quote_denom,
+            start_time: SystemTime::now()
         };
         let vecu8_query_request = query_request.encode_to_vec();
         let data = Binary::from(vecu8_query_request);
@@ -170,3 +172,4 @@ pub fn ibc_packet_timeout(
 ) -> StdResult<IbcBasicResponse> {
     Ok(IbcBasicResponse::new().add_attribute("action", "ibc_packet_timeout"))
 }
+

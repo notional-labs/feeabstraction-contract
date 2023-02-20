@@ -1,4 +1,7 @@
-use cosmwasm_std::{Binary, ContractResult, Empty, QueryRequest};
+use std::time::SystemTime;
+
+use cosmwasm_std::{Binary, ContractResult, Empty, QueryRequest, Timestamp};
+use prost::Message;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -10,8 +13,7 @@ pub struct InstantiateMsg {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum ExecuteMsg {
-}
+pub enum ExecuteMsg {}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -27,9 +29,23 @@ pub enum QueryMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct IbcQueryRequestTwap {
-    pub base_asset_denom: String,
+    pub base_denom: String,
     pub pool_id: String,
-    pub quote_asset_denom: String,
+    pub quote_denom: String,
+    pub twap_period: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, ::prost::Message)]
+#[serde(rename_all = "snake_case")]
+pub struct QueryTwapRequest {
+    #[prost(uint64, tag = "1")]
+    pub pool_id: u64,
+    #[prost(string, tag = "2")]
+    pub base_asset: String,
+    #[prost(string, tag = "3")]
+    pub quote_asset: String,
+    #[prost(Timestamp, tag = "4")]
+    pub start_time: Timestamp
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -47,5 +63,5 @@ pub struct Result {
 #[serde(rename_all = "snake_case")]
 pub enum IbcQueryRequestTwapResponse {
     Result(Binary),
-    Error(String)
+    Error(String),
 }

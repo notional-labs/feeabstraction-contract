@@ -68,7 +68,7 @@ pub fn query_stargate_twap(
     let data = Binary::from(vecu8_query_request);
 
     let query_request: QueryRequest<Empty> = QueryRequest::Stargate {
-        path: "/osmosis.gamm.v2.Query/SpotPrice".to_string(),
+        path: "/osmosis.twap.v1beta1.Query/ArithmeticTwapToNow".to_string(),
         data: data,
     };
 
