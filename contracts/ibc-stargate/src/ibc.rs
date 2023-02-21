@@ -1,12 +1,10 @@
 use cosmwasm_std::{
-    entry_point, from_binary, from_slice, to_binary, to_vec, Binary, ContractResult, Deps, DepsMut,
-    Empty, Env, Event, Ibc3ChannelOpenResponse, IbcBasicResponse, IbcChannelCloseMsg,
-    IbcChannelConnectMsg, IbcChannelOpenMsg, IbcChannelOpenResponse, IbcOrder, IbcPacketAckMsg,
-    IbcPacketReceiveMsg, IbcPacketTimeoutMsg, IbcReceiveResponse, QuerierResult, QueryRequest,
-    StdError, StdResult, SystemResult, WasmMsg,
+    entry_point, from_binary, to_binary, to_vec, Binary, ContractResult, DepsMut, Empty, Env,
+    Event, Ibc3ChannelOpenResponse, IbcBasicResponse, IbcChannelCloseMsg, IbcChannelConnectMsg,
+    IbcChannelOpenMsg, IbcChannelOpenResponse, IbcPacketAckMsg, IbcPacketReceiveMsg,
+    IbcPacketTimeoutMsg, IbcReceiveResponse, QuerierResult, QueryRequest, StdError, StdResult,
+    SystemResult,
 };
-use cw_osmo_proto::osmosis::gamm::v1beta1::QuerySpotPriceRequest;
-use prost::Message;
 
 use crate::error::{ContractError, QueryError, QueryResult};
 use crate::msg::{CallResult, ICQResponse, IbcQueryRequestResponse, IbcStargate};
@@ -88,50 +86,44 @@ pub fn ibc_packet_receive(
     // put this in a closure so we can convert all error responses into acknowledgements
     (|| {
         let ibc_msg: IbcStargate;
-        let decoded_data: StdResult<IbcStargate> = from_binary(&msg.packet.data);
-        match decoded_data {
+        match from_binary(&msg.packet.data) {
             Ok(ibc_query_req) => ibc_msg = ibc_query_req,
             Err(error) => return Err(StdError::generic_err(format!("Serilize error: {}", error))),
         }
 
-        let mut query_requests: Vec<QueryRequest<Empty>> = vec![];
+        let mut result: Vec<CallResult> = vec![CallResult::default(); ibc_msg.requests.len()];
+        let mut index = 0;
         for request in ibc_msg.requests {
-            query_requests.push(QueryRequest::Stargate {
+            let query_request: QueryRequest<Empty> = QueryRequest::Stargate {
                 path: request.path,
                 data: request.data,
-            })
-        }
-
-        let mut result: Vec<CallResult> = vec![CallResult::default(); query_requests.len()];
-
-        for i in 0..query_requests.len() {
-            let query_request = query_requests[i].clone();
-            let tovec_raw = to_vec(&query_request).map_err(|serialize_err| {
-                StdError::generic_err(format!("Serializing QueryRequest: {}", serialize_err))
-            });
+            };
             let raw: Vec<u8>;
-            match tovec_raw {
+            match to_vec(&query_request).map_err(|serialize_err| {
+                StdError::generic_err(format!("Serializing QueryRequest err: {}", serialize_err))
+            }) {
                 Ok(vecu8) => {
                     raw = vecu8;
                     let res = deps.querier.raw_query(&raw);
-                    result[i] = match process_query_result(res) {
+                    result[index] = match process_query_result(res) {
                         Ok(res) => CallResult {
                             success: true,
                             data: res,
                         },
-                        Err(err) => return Err(err.std_at_index(i)),
+                        Err(err) => return Err(err.std_at_index(index)),
                     }
                 }
                 Err(err) => {
-                    result[i] = CallResult {
+                    result[index] = CallResult {
                         success: false,
                         data: to_binary(&err.to_string())?,
                     }
                 }
             }
+            index = index + 1;
         }
-        let icq_responses: ICQResponse = ICQResponse { responses: result };
-        let response = IbcQueryRequestResponse::Result(to_binary(&icq_responses)?);
+        let response =
+            IbcQueryRequestResponse::Result(to_binary(&ICQResponse { responses: result })?);
         let acknowledgement = to_binary(&response)?;
         Ok(IbcReceiveResponse::<Empty>::new()
             .set_ack(acknowledgement)

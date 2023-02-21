@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 use cosmwasm_std::{StdError, Binary};
-use cw_utils::{ParseReplyError, PaymentError};
+use cw_utils::{PaymentError};
 
 #[derive(Error, Debug, PartialEq)]
 pub enum ContractError {
@@ -9,16 +9,10 @@ pub enum ContractError {
     Std(#[from] StdError),
 
     #[error("{0}")]
-    ParseReply(#[from] ParseReplyError),
-
-    #[error("{0}")]
     Payment(#[from] PaymentError),
 
     #[error("Cannot register over an existing channel")]
     ChannelAlreadyRegistered,
-
-    #[error("Invalid reply id")]
-    InvalidReplyId,
 }
 
 #[derive(Error, Debug)]
