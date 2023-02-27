@@ -1,5 +1,5 @@
 [package]
-name = "fee-abstraction"
+name = "ibc-stargate"
 version = "0.1.0"
 authors = ["expertdicer@gmail.com"]
 edition = "2021"

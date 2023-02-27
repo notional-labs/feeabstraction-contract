@@ -1,17 +1,15 @@
 use cosmwasm_std::{
-    entry_point, from_binary, from_slice, to_binary, to_vec, Binary, ContractResult, Deps, DepsMut,
-    Empty, Env, Event, Ibc3ChannelOpenResponse, IbcBasicResponse, IbcChannelCloseMsg,
-    IbcChannelConnectMsg, IbcChannelOpenMsg, IbcChannelOpenResponse, IbcOrder, IbcPacketAckMsg,
-    IbcPacketReceiveMsg, IbcPacketTimeoutMsg, IbcReceiveResponse, QueryRequest, StdError,
-    StdResult, SystemResult, WasmMsg,
+    entry_point, from_binary, to_binary, to_vec, Binary, ContractResult, DepsMut, Empty, Env,
+    Event, Ibc3ChannelOpenResponse, IbcBasicResponse, IbcChannelCloseMsg, IbcChannelConnectMsg,
+    IbcChannelOpenMsg, IbcChannelOpenResponse, IbcPacketAckMsg, IbcPacketReceiveMsg,
+    IbcPacketTimeoutMsg, IbcReceiveResponse, QuerierResult, QueryRequest, StdError, StdResult,
+    SystemResult,
 };
-use cw_osmo_proto::osmosis::gamm::v1beta1::QuerySpotPriceRequest;
-use prost::Message;
 
-use crate::error::ContractError;
-use crate::msg::{IbcQueryRequestTwap, IbcQueryRequestTwapResponse};
+use crate::error::{ContractError, QueryError, QueryResult};
+use crate::msg::{CallResult, ICQResponse, IbcQueryRequestResponse, IbcStargate};
 use crate::state::PENDING;
-use crate::{IBC_APP_VERSION, APP_ORDER};
+use crate::{APP_ORDER, IBC_APP_VERSION};
 
 #[entry_point]
 /// enforces ordering and versioing constraints
@@ -87,55 +85,49 @@ pub fn ibc_packet_receive(
 ) -> StdResult<IbcReceiveResponse> {
     // put this in a closure so we can convert all error responses into acknowledgements
     (|| {
-        let ibc_msg: IbcQueryRequestTwap;
-        let decoded_data: StdResult<IbcQueryRequestTwap> = from_binary(&msg.packet.data);
-        match decoded_data {
+        let ibc_msg: IbcStargate;
+        match from_binary(&msg.packet.data) {
             Ok(ibc_query_req) => ibc_msg = ibc_query_req,
             Err(error) => return Err(StdError::generic_err(format!("Serilize error: {}", error))),
         }
 
-        let pool_id: u64;
-        match ibc_msg.pool_id.as_str().parse::<u64>() {
-            Ok(id) => pool_id = id,
-            Err(error) => return Err(StdError::generic_err(format!("Serilize error: {}", error))),
-        }
-        let query_request: QuerySpotPriceRequest = QuerySpotPriceRequest {
-            pool_id: pool_id,
-            token_in_denom: ibc_msg.base_asset_denom,
-            token_out_denom: ibc_msg.quote_asset_denom,
-            with_swap_fee: false,
-        };
-        let vecu8_query_request = query_request.encode_to_vec();
-        let data = Binary::from(vecu8_query_request);
-
-        let query_request: QueryRequest<Empty> = QueryRequest::Stargate {
-            path: "/osmosis.gamm.v2.Query/SpotPrice".to_string(),
-            data: data,
-        };
-
-        let raw = to_vec(&query_request)
-            .map_err(|serialize_err| {
-                StdError::generic_err(format!("Serializing QueryRequest: {}", serialize_err))
-            })
-            .unwrap();
-
-        let res = match deps.querier.raw_query(&raw) {
-            SystemResult::Err(system_err) => Err(StdError::generic_err(format!(
-                "Querier contract error: {}",
-                system_err
-            ))),
-            SystemResult::Ok(ContractResult::Err(contract_err)) => Err(StdError::generic_err(
-                format!("Querier contract error: {}", contract_err),
-            )),
-            SystemResult::Ok(ContractResult::Ok(value)) => {
-                let response = IbcQueryRequestTwapResponse::Result(value);
-                let acknowledgement = to_binary(&response)?;
-                Ok(IbcReceiveResponse::<Empty>::new()
-                    .set_ack(acknowledgement)
-                    .add_attribute("action", "receive_ibc_query"))
+        let mut result: Vec<CallResult> = vec![CallResult::default(); ibc_msg.requests.len()];
+        let mut index = 0;
+        for request in ibc_msg.requests {
+            let query_request: QueryRequest<Empty> = QueryRequest::Stargate {
+                path: request.path,
+                data: request.data,
+            };
+            let raw: Vec<u8>;
+            match to_vec(&query_request).map_err(|serialize_err| {
+                StdError::generic_err(format!("Serializing QueryRequest err: {}", serialize_err))
+            }) {
+                Ok(vecu8) => {
+                    raw = vecu8;
+                    let res = deps.querier.raw_query(&raw);
+                    result[index] = match process_query_result(res) {
+                        Ok(res) => CallResult {
+                            success: true,
+                            data: res,
+                        },
+                        Err(err) => return Err(err.std_at_index(index)),
+                    }
+                }
+                Err(err) => {
+                    result[index] = CallResult {
+                        success: false,
+                        data: to_binary(&err.to_string())?,
+                    }
+                }
             }
-        };
-        return res;
+            index = index + 1;
+        }
+        let response =
+            IbcQueryRequestResponse::Result(to_binary(&ICQResponse { responses: result })?);
+        let acknowledgement = to_binary(&response)?;
+        Ok(IbcReceiveResponse::<Empty>::new()
+            .set_ack(acknowledgement)
+            .add_attribute("action", "receive_ibc_query"))
     })()
     .or_else(|e| {
         // we try to capture all app-level errors and convert them into
@@ -147,10 +139,20 @@ pub fn ibc_packet_receive(
     })
 }
 
+fn process_query_result(result: QuerierResult) -> QueryResult {
+    match result {
+        SystemResult::Err(system_err) => Err(QueryError::System(system_err.to_string())),
+        SystemResult::Ok(ContractResult::Err(contract_err)) => {
+            Err(QueryError::Contract(contract_err))
+        }
+        SystemResult::Ok(ContractResult::Ok(value)) => Ok(value),
+    }
+}
+
 // this encode an error or error message into a proper acknowledgement to the recevier
 fn encode_ibc_error(msg: impl Into<String>) -> Binary {
     // this cannot error, unwrap to keep the interface simple
-    to_binary(&IbcQueryRequestTwapResponse::Error(msg.into())).unwrap()
+    to_binary(&IbcQueryRequestResponse::Error(msg.into())).unwrap()
 }
 
 #[entry_point]
